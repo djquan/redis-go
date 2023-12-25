@@ -36,7 +36,7 @@ func handleConnection(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 
 	for {
-		_, err := reader.ReadString('\n')
+		msg, err := reader.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
 				log.Printf("Failed to read from socket: %v", err)
@@ -45,6 +45,8 @@ func handleConnection(conn net.Conn) {
 			return
 		}
 
-		conn.Write([]byte("+PONG\r\n"))
+		if msg == "ping\r\n" {
+			conn.Write([]byte("+PONG\r\n"))
+		}
 	}
 }
