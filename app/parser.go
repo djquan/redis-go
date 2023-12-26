@@ -9,6 +9,53 @@ import (
 	"strings"
 )
 
+func Parse(reader *bufio.Reader) ([]interface{}, error) {
+	return parseArray(reader)
+}
+
+func parseHelper(reader *bufio.Reader) (interface{}, error) {
+	msg, err := reader.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+
+	reader.UnreadByte()
+
+	switch msg {
+	case '*':
+		return parseArray(reader)
+	case '$':
+		return ParseBulkString(reader)
+	default:
+		return nil, fmt.Errorf("unhandled RESP")
+	}
+}
+
+func parseArray(reader *bufio.Reader) ([]interface{}, error) {
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+
+	length, err := strconv.Atoi(strings.TrimSuffix(line[1:], "\r\n"))
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]interface{}, length)
+
+	for i := 0; i < length; i++ {
+		r, err := parseHelper(reader)
+		if err != nil {
+			return nil, err
+		}
+
+		result[i] = r
+	}
+
+	return result, nil
+}
+
 func ParseBulkString(reader *bufio.Reader) (string, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
