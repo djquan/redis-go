@@ -56,35 +56,20 @@ func handleConnectionHelper(conn net.Conn, reader *bufio.Reader) {
 	case '*':
 		parseArray(conn, reader)
 	case '$':
-		parseBulkString(conn, reader)
+		reader.UnreadByte()
+		handleBulkString(conn, reader)
 	}
 }
 
-func parseBulkString(conn net.Conn, reader *bufio.Reader) {
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	length, err := strconv.Atoi(strings.TrimSuffix(line, "\r\n"))
+func handleBulkString(conn net.Conn, reader *bufio.Reader) {
+	command, err := ParseBulkString(reader)
 
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	buf := make([]byte, length)
-	_, err = io.ReadFull(reader, buf)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	reader.ReadByte()
-	reader.ReadByte()
-
-	handleCommand(conn, string(buf), reader)
+	handleCommand(conn, command, reader)
 }
 
 func handleCommand(conn net.Conn, s string, reader *bufio.Reader) {
@@ -93,9 +78,7 @@ func handleCommand(conn net.Conn, s string, reader *bufio.Reader) {
 	case "PING":
 		conn.Write([]byte("+PONG\r\n"))
 	case "ECHO":
-
 		echo, err := ParseBulkString(reader)
-		println(echo)
 
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)

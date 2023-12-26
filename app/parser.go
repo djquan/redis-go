@@ -28,5 +28,8 @@ func ParseBulkString(reader *bufio.Reader) (string, error) {
 		os.Exit(1)
 	}
 
+	reader.ReadByte()
+	reader.ReadByte()
+
 	return string(buf), nil
 }
