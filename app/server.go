@@ -7,6 +7,8 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 )
 
 func main() {
@@ -36,17 +38,91 @@ func handleConnection(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 
 	for {
-		msg, err := reader.ReadString('\n')
+		handleConnectionHelper(conn, reader)
+	}
+}
+
+func handleConnectionHelper(conn net.Conn, reader *bufio.Reader) {
+	msg, err := reader.ReadByte()
+	if err != nil {
+		if err != io.EOF {
+			log.Printf("Failed to read from socket: %v", err)
+		}
+
+		return
+	}
+
+	switch msg {
+	case '*':
+		parseArray(conn, reader)
+	case '$':
+		parseBulkString(conn, reader)
+	}
+}
+
+func parseBulkString(conn net.Conn, reader *bufio.Reader) {
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	length, err := strconv.Atoi(strings.TrimSuffix(line, "\r\n"))
+
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	buf := make([]byte, length)
+	_, err = io.ReadFull(reader, buf)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	reader.ReadByte()
+	reader.ReadByte()
+
+	handleCommand(conn, string(buf), reader)
+}
+
+func handleCommand(conn net.Conn, s string, reader *bufio.Reader) {
+	println(s)
+	switch strings.ToUpper(s) {
+	case "PING":
+		conn.Write([]byte("+PONG\r\n"))
+	case "ECHO":
+
+		echo, err := ParseBulkString(reader)
+		println(echo)
+
 		if err != nil {
-			if err != io.EOF {
-				log.Printf("Failed to read from socket: %v", err)
-			}
-
-			return
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
 		}
 
-		if msg == "ping\r\n" {
-			conn.Write([]byte("+PONG\r\n"))
-		}
+		conn.Write([]byte("+"))
+		conn.Write([]byte(echo))
+		conn.Write([]byte("\r\n"))
+	}
+}
+
+func parseArray(conn net.Conn, reader *bufio.Reader) {
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	length, err := strconv.Atoi(strings.TrimSuffix(line, "\r\n"))
+
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	for i := 0; i < length; i++ {
+		handleConnectionHelper(conn, reader)
 	}
 }
