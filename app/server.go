@@ -24,9 +24,10 @@ type server struct {
 func (s *server) listenAndServe() {
 	for {
 		conn, err := s.l.Accept()
+		fmt.Println("accepted new connection")
 		if err != nil {
 			fmt.Println(err)
-			continue
+			os.Exit(1)
 		}
 
 		go s.handleConn(conn)
@@ -67,8 +68,6 @@ func startServer(port string) (*server, error) {
 		return nil, err
 	}
 
-	defer l.Close()
-
 	var db = struct {
 		sync.RWMutex
 		m map[string][]byte
@@ -82,6 +81,7 @@ func startServer(port string) (*server, error) {
 
 func main() {
 	server, err := startServer("6379")
+	defer server.l.Close()
 	if err != nil {
 		fmt.Println("Failed to bind to port 6379")
 		os.Exit(1)
