@@ -9,40 +9,40 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 )
 
-func main() {
-	fmt.Println("Logs from your program will appear here!")
+type server struct {
+	l net.Listener
 
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
-	if err != nil {
-		fmt.Println("Failed to bind to port 6379")
-		os.Exit(1)
+	db *struct {
+		sync.RWMutex
+		m map[string][]byte
 	}
+}
 
-	defer l.Close()
-
+func (s *server) listenAndServe() {
 	for {
-		conn, err := l.Accept()
+		conn, err := s.l.Accept()
 		if err != nil {
 			fmt.Println(err)
 			continue
 		}
 
-		go handleConnection(conn)
+		go s.handleConn(conn)
 	}
 }
 
-func handleConnection(conn net.Conn) {
+func (s *server) handleConn(conn net.Conn) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 
 	for {
-		handleConnectionHelper(conn, reader)
+		s.handleConnectionHelper(conn, reader)
 	}
 }
 
-func handleConnectionHelper(conn net.Conn, reader *bufio.Reader) {
+func (s *server) handleConnectionHelper(conn net.Conn, reader *bufio.Reader) {
 	msg, err := reader.ReadByte()
 	if err != nil {
 		if err != io.EOF {
@@ -54,14 +54,43 @@ func handleConnectionHelper(conn net.Conn, reader *bufio.Reader) {
 
 	switch msg {
 	case '*':
-		parseArray(conn, reader)
+		s.parseArray(conn, reader)
 	case '$':
 		reader.UnreadByte()
-		handleBulkString(conn, reader)
+		s.handleBulkString(conn, reader)
 	}
 }
 
-func handleBulkString(conn net.Conn, reader *bufio.Reader) {
+func startServer(port string) (*server, error) {
+	l, err := net.Listen("tcp", "0.0.0.0:"+port)
+	if err != nil {
+		return nil, err
+	}
+
+	defer l.Close()
+
+	var db = struct {
+		sync.RWMutex
+		m map[string][]byte
+	}{m: make(map[string][]byte)}
+
+	return &server{
+		l:  l,
+		db: &db,
+	}, nil
+}
+
+func main() {
+	server, err := startServer("6379")
+	if err != nil {
+		fmt.Println("Failed to bind to port 6379")
+		os.Exit(1)
+	}
+
+	server.listenAndServe()
+}
+
+func (s *server) handleBulkString(conn net.Conn, reader *bufio.Reader) {
 	command, err := ParseBulkString(reader)
 
 	if err != nil {
@@ -69,12 +98,11 @@ func handleBulkString(conn net.Conn, reader *bufio.Reader) {
 		os.Exit(1)
 	}
 
-	handleCommand(conn, command, reader)
+	s.handleCommand(conn, command, reader)
 }
 
-func handleCommand(conn net.Conn, s string, reader *bufio.Reader) {
-	println(s)
-	switch strings.ToUpper(s) {
+func (s *server) handleCommand(conn net.Conn, command string, reader *bufio.Reader) {
+	switch strings.ToUpper(command) {
 	case "PING":
 		conn.Write([]byte("+PONG\r\n"))
 	case "ECHO":
@@ -88,10 +116,44 @@ func handleCommand(conn net.Conn, s string, reader *bufio.Reader) {
 		conn.Write([]byte("+"))
 		conn.Write([]byte(echo))
 		conn.Write([]byte("\r\n"))
+	case "SET":
+		key, err := ParseBulkString(reader)
+
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		value, err := ParseBulkString(reader)
+
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		s.db.Lock()
+		s.db.m[key] = []byte(value)
+		s.db.Unlock()
+
+		conn.Write([]byte("+OK\r\n"))
+	case "GET":
+		key, err := ParseBulkString(reader)
+
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		s.db.RLock()
+		val := s.db.m[key]
+		s.db.RUnlock()
+
+		conn.Write([]byte("+"))
+		conn.Write(val)
+		conn.Write([]byte("\r\n"))
 	}
 }
 
-func parseArray(conn net.Conn, reader *bufio.Reader) {
+func (s *server) parseArray(conn net.Conn, reader *bufio.Reader) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -106,6 +168,6 @@ func parseArray(conn net.Conn, reader *bufio.Reader) {
 	}
 
 	for i := 0; i < length; i++ {
-		handleConnectionHelper(conn, reader)
+		s.handleConnectionHelper(conn, reader)
 	}
 }
